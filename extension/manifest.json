@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Biliload B站双语字幕",
+  "version": "0.1.0",
+  "description": "从本地 Biliload 应用读取双语字幕并叠加到 B 站播放器。",
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*",
+    "https://www.bilibili.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.bilibili.com/video/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+
