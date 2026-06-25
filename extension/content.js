@@ -8,17 +8,20 @@
   let lastLookupAt = 0;
 
   function ensureOverlay() {
+    ensurePill();
     const video = document.querySelector("video");
-    if (!video) return null;
-
     const container =
-      video.closest(".bpx-player-video-area") ||
-      video.closest(".bpx-player-video-wrap") ||
-      video.parentElement;
+      video?.closest(".bpx-player-video-area") ||
+      video?.closest(".bpx-player-video-wrap") ||
+      video?.closest("#bilibili-player") ||
+      video?.parentElement ||
+      document.querySelector("#bilibili-player") ||
+      document.body;
 
     if (!container) return null;
 
-    if (getComputedStyle(container).position === "static") {
+    const useFixed = container === document.body;
+    if (!useFixed && getComputedStyle(container).position === "static") {
       container.style.position = "relative";
     }
 
@@ -31,15 +34,18 @@
       `;
       container.append(overlay);
     }
-
-    if (!pill) {
-      pill = document.createElement("div");
-      pill.className = "biliload-pill";
-      pill.textContent = "Biliload";
-      document.body.append(pill);
-    }
+    overlay.classList.toggle("biliload-fixed", useFixed);
 
     return overlay;
+  }
+
+  function ensurePill() {
+    if (pill) return pill;
+    pill = document.createElement("div");
+    pill.className = "biliload-pill";
+    pill.textContent = "Biliload";
+    document.body.append(pill);
+    return pill;
   }
 
   async function loadSubtitleForPage() {
@@ -50,13 +56,15 @@
     updatePill("Biliload: 查询");
 
     try {
-      const response = await fetch(
-        `${API_BASE}/api/page-subtitle?url=${encodeURIComponent(currentUrl)}`,
-      );
+      const params = new URLSearchParams({ url: currentUrl });
+      const jobId = new URL(location.href).searchParams.get("biliload_job");
+      if (jobId) params.set("job_id", jobId);
+
+      const response = await fetch(`${API_BASE}/api/page-subtitle?${params}`);
       if (!response.ok) throw new Error(String(response.status));
       const data = await response.json();
       if (!data.found) {
-        updatePill("Biliload: 无字幕");
+        updatePill(`Biliload: ${data.reason || "无字幕"}`);
         clearCue();
         return;
       }
@@ -99,7 +107,7 @@
   }
 
   function updatePill(text) {
-    ensureOverlay();
+    ensurePill();
     if (pill) pill.textContent = text;
   }
 

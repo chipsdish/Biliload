@@ -12,6 +12,11 @@
     sans-serif;
 }
 
+.biliload-overlay.biliload-fixed {
+  position: fixed;
+  bottom: 12%;
+}
+
 .biliload-source,
 .biliload-target {
   display: none;
@@ -58,4 +63,3 @@
     system-ui,
     sans-serif;
 }
-

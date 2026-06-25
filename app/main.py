@@ -30,6 +30,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def allow_private_network_access(request, call_next):
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 executor = ThreadPoolExecutor(max_workers=int(os.getenv("BILILOAD_WORKERS", "1")))
@@ -143,10 +152,14 @@ def get_job_file(job_id: str, kind: str) -> FileResponse:
 
 
 @app.get("/api/page-subtitle")
-def page_subtitle(url: str = Query(...)) -> dict:
-    bvid = extract_bvid(url)
-    index_data = read_index()
-    job_id = index_data.get("by_bvid", {}).get(bvid) if bvid else None
+def page_subtitle(
+    url: str | None = Query(default=None),
+    job_id: str | None = Query(default=None),
+) -> dict:
+    if not job_id:
+        bvid = extract_bvid(url)
+        index_data = read_index()
+        job_id = index_data.get("by_bvid", {}).get(bvid) if bvid else None
     if not job_id:
         return {"found": False, "reason": "当前 B 站页面还没有生成过字幕"}
 

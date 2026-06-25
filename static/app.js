@@ -100,7 +100,7 @@ function renderJobs(jobs) {
         links.append(download);
       } else {
         const open = document.createElement("a");
-        open.href = job.url;
+        open.href = bilibiliImportUrl(job);
         open.textContent = "打开B站并导入字幕";
         open.target = "_blank";
         open.rel = "noreferrer";
@@ -123,6 +123,12 @@ function renderJobs(jobs) {
 
 function taskTypeText(job) {
   return job.task_type === "video" ? "下载视频" : "双语字幕";
+}
+
+function bilibiliImportUrl(job) {
+  const url = new URL(job.url);
+  url.searchParams.set("biliload_job", job.id);
+  return url.toString();
 }
 
 function statusText(status) {
