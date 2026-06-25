@@ -13,9 +13,9 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 
-from .pipeline import extract_bvid, run_pipeline
+from .pipeline import PipelineError, extract_bvid, normalize_bilibili_input, run_pipeline
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
@@ -38,12 +38,12 @@ jobs: dict[str, dict] = {}
 
 
 class CreateJobRequest(BaseModel):
-    url: HttpUrl
+    url: str = Field(min_length=1)
+    task_type: Literal["subtitle", "video"] = "subtitle"
     source_language: str = Field(default="auto")
     whisper_model: str = Field(default="small")
     translator: Literal["google", "none"] = "google"
     cookies_browser: Literal["chrome", "firefox", "edge", "safari", "none"] = "chrome"
-    download_video: bool = True
 
 
 class JobResponse(BaseModel):
@@ -58,7 +58,7 @@ class JobResponse(BaseModel):
     whisper_model: str
     translator: str
     cookies_browser: str | None
-    download_video: bool
+    task_type: str = "subtitle"
     title: str | None = None
     bvid: str | None = None
     detected_language: str | None = None
@@ -81,6 +81,11 @@ def create_job(request: CreateJobRequest) -> dict:
     job_id = uuid.uuid4().hex[:12]
     now = utc_now()
     cookies_browser = None if request.cookies_browser == "none" else request.cookies_browser
+    try:
+        normalized_url, bvid = normalize_bilibili_input(request.url)
+    except PipelineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     job = {
         "id": job_id,
         "status": "queued",
@@ -88,14 +93,15 @@ def create_job(request: CreateJobRequest) -> dict:
         "message": "任务已排队",
         "created_at": now,
         "updated_at": now,
-        "url": str(request.url),
+        "url": normalized_url,
+        "input": request.url,
+        "task_type": request.task_type,
         "source_language": request.source_language,
         "whisper_model": request.whisper_model,
         "translator": request.translator,
         "cookies_browser": cookies_browser,
-        "download_video": request.download_video,
         "title": None,
-        "bvid": extract_bvid(str(request.url)),
+        "bvid": bvid,
         "detected_language": None,
         "error": None,
         "files": {},
@@ -108,6 +114,7 @@ def create_job(request: CreateJobRequest) -> dict:
 
 @app.get("/api/jobs", response_model=list[JobResponse])
 def list_jobs() -> list[dict]:
+    load_jobs_from_disk()
     with lock:
         return sorted(jobs.values(), key=lambda job: job["created_at"], reverse=True)
 
@@ -180,7 +187,7 @@ def run_job(job_id: str) -> None:
             whisper_model=job["whisper_model"],
             translator=job["translator"],
             cookies_browser=job["cookies_browser"],
-            download_video=job["download_video"],
+            task_type=job.get("task_type", "subtitle"),
             progress=progress,
         )
         update_job(
@@ -228,6 +235,17 @@ def load_job_from_disk(job_id: str) -> dict | None:
     return job
 
 
+def load_jobs_from_disk() -> None:
+    if not JOBS_DIR.exists():
+        return
+    for path in JOBS_DIR.glob("*/job.json"):
+        job_id = path.parent.name
+        with lock:
+            already_loaded = job_id in jobs
+        if not already_loaded:
+            load_job_from_disk(job_id)
+
+
 def read_index() -> dict:
     if not INDEX_PATH.exists():
         return {"by_bvid": {}, "jobs": {}}
@@ -253,4 +271,3 @@ def write_index(job_id: str) -> None:
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
-

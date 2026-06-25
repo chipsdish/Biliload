@@ -41,6 +41,24 @@ def extract_bvid(value: str | None) -> str | None:
     return match.group(1) if match else None
 
 
+def normalize_bilibili_input(value: str) -> tuple[str, str | None]:
+    raw = value.strip()
+    if not raw:
+        raise PipelineError("请输入 BV 号或 B 站链接")
+
+    bvid = extract_bvid(raw)
+    if bvid:
+        return f"https://www.bilibili.com/video/{bvid}", bvid
+
+    if raw.startswith(("http://", "https://")):
+        return raw, None
+
+    if raw.startswith(("www.bilibili.com/", "bilibili.com/", "b23.tv/")):
+        return f"https://{raw}", None
+
+    raise PipelineError("没有识别到 BV 号，请输入 BV 号或 B 站链接")
+
+
 def run_pipeline(
     *,
     job_id: str,
@@ -50,11 +68,12 @@ def run_pipeline(
     whisper_model: str,
     translator: str,
     cookies_browser: str | None,
-    download_video: bool,
+    task_type: str,
     progress: ProgressCallback,
 ) -> dict:
     job_dir.mkdir(parents=True, exist_ok=True)
 
+    download_video = task_type == "video"
     progress("downloading", 0.05, "读取视频信息并下载媒体")
     media_path, info = download_media(
         url=url,
@@ -63,6 +82,31 @@ def run_pipeline(
         download_video=download_video,
         progress=progress,
     )
+
+    title = clean_title(info.get("title") or "untitled")
+    bvid = extract_bvid(info.get("id")) or extract_bvid(url)
+
+    if task_type == "video":
+        files = {"video": media_path.name}
+        metadata = {
+            "job_id": job_id,
+            "url": url,
+            "title": title,
+            "bvid": bvid,
+            "detected_language": None,
+            "source_language": source_language,
+            "whisper_model": whisper_model,
+            "translator": translator,
+            "task_type": task_type,
+            "media_file": str(media_path.name),
+            "files": files,
+        }
+        (job_dir / "metadata.json").write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        progress("completed", 1.0, "视频下载完成")
+        return metadata
 
     progress("extracting_audio", 0.30, "抽取 16k 单声道音频")
     audio_path = job_dir / "audio_16k.wav"
@@ -85,8 +129,6 @@ def run_pipeline(
 
     progress("writing_files", 0.90, "写入字幕和元数据")
     files = write_outputs(job_dir, bilingual_cues)
-    title = clean_title(info.get("title") or "untitled")
-    bvid = extract_bvid(info.get("id")) or extract_bvid(url)
 
     metadata = {
         "job_id": job_id,
@@ -97,7 +139,7 @@ def run_pipeline(
         "source_language": source_language,
         "whisper_model": whisper_model,
         "translator": translator,
-        "download_video": download_video,
+        "task_type": task_type,
         "media_file": str(media_path.name),
         "files": files,
     }
@@ -270,4 +312,3 @@ def write_outputs(job_dir: Path, cues: list[Cue]) -> dict[str, str]:
 
 def clean_title(title: str) -> str:
     return re.sub(r"\s+", " ", title).strip()
-

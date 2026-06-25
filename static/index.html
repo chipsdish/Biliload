@@ -22,16 +22,27 @@
       <section class="panel">
         <form id="job-form" class="job-form">
           <label class="url-field">
-            <span>B站链接</span>
+            <span>B站链接或 BV 号</span>
             <input
               id="url"
               name="url"
-              type="url"
+              type="text"
               required
-              placeholder="https://www.bilibili.com/video/BV..."
+              placeholder="BV1ngEB6REmS 或 https://www.bilibili.com/video/BV..."
               autocomplete="off"
             />
           </label>
+
+          <fieldset class="task-type" aria-label="任务类型">
+            <label>
+              <input type="radio" name="task_type" value="subtitle" checked />
+              <span>双语字幕</span>
+            </label>
+            <label>
+              <input type="radio" name="task_type" value="video" />
+              <span>下载视频</span>
+            </label>
+          </fieldset>
 
           <div class="control-grid">
             <label>
@@ -81,10 +92,6 @@
           </div>
 
           <div class="form-row">
-            <label class="switch">
-              <input id="download-video" type="checkbox" checked />
-              <span>下载视频文件</span>
-            </label>
             <button id="submit-button" type="submit">开始</button>
           </div>
         </form>
@@ -118,4 +125,3 @@
     <script src="/static/app.js" type="module"></script>
   </body>
 </html>
-

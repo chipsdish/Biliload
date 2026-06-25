@@ -6,25 +6,17 @@ const template = document.querySelector("#job-template");
 
 let pollTimer = null;
 
-const fileLabels = {
-  bilingual_srt: "双语 SRT",
-  source_srt: "原文 SRT",
-  zh_srt: "中文 SRT",
-  transcript: "转写 TXT",
-  json: "JSON",
-};
-
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   submitButton.disabled = true;
 
   const payload = {
     url: document.querySelector("#url").value.trim(),
+    task_type: document.querySelector('input[name="task_type"]:checked').value,
     source_language: document.querySelector("#source-language").value,
     whisper_model: document.querySelector("#whisper-model").value,
     translator: document.querySelector("#translator").value,
     cookies_browser: document.querySelector("#cookies-browser").value,
-    download_video: document.querySelector("#download-video").checked,
   };
 
   try {
@@ -38,7 +30,6 @@ form.addEventListener("submit", async (event) => {
       throw new Error(text);
     }
     form.reset();
-    document.querySelector("#download-video").checked = true;
     await loadJobs();
     startPolling();
   } catch (error) {
@@ -82,6 +73,7 @@ function renderJobs(jobs) {
     card.querySelector(".job-meta").textContent = [
       job.bvid,
       job.detected_language ? `识别语言 ${job.detected_language}` : null,
+      taskTypeText(job),
       `模型 ${job.whisper_model}`,
       `任务 ${job.id}`,
     ]
@@ -100,27 +92,37 @@ function renderJobs(jobs) {
 
     const links = card.querySelector(".file-links");
     if (job.status === "completed") {
-      for (const [kind, label] of Object.entries(fileLabels)) {
-        if (job.files?.[kind]) {
-          const link = document.createElement("a");
-          link.href = `/api/jobs/${job.id}/files/${kind}`;
-          link.textContent = label;
-          link.target = "_blank";
-          links.append(link);
-        }
-      }
-      if (job.url) {
+      if (job.task_type === "video" && job.files?.video) {
+        const download = document.createElement("a");
+        download.href = `/api/jobs/${job.id}/files/video`;
+        download.textContent = "下载视频";
+        download.target = "_blank";
+        links.append(download);
+      } else {
         const open = document.createElement("a");
         open.href = job.url;
-        open.textContent = "打开B站";
+        open.textContent = "打开B站并导入字幕";
         open.target = "_blank";
         open.rel = "noreferrer";
+        open.className = "primary-action";
         links.append(open);
+
+        if (job.files?.bilingual_srt) {
+          const download = document.createElement("a");
+          download.href = `/api/jobs/${job.id}/files/bilingual_srt`;
+          download.textContent = "下载双语字幕";
+          download.target = "_blank";
+          links.append(download);
+        }
       }
     }
 
     jobsEl.append(card);
   }
+}
+
+function taskTypeText(job) {
+  return job.task_type === "video" ? "下载视频" : "双语字幕";
 }
 
 function statusText(status) {
@@ -153,4 +155,3 @@ function stopPolling() {
 loadJobs().catch((error) => {
   jobsEl.innerHTML = `<div class="empty">加载失败：${error.message}</div>`;
 });
-

@@ -5,6 +5,7 @@
   let activeCue = null;
   let overlay = null;
   let pill = null;
+  let lastLookupAt = 0;
 
   function ensureOverlay() {
     const video = document.querySelector("video");
@@ -43,6 +44,7 @@
 
   async function loadSubtitleForPage() {
     currentUrl = location.href;
+    lastLookupAt = Date.now();
     cues = [];
     activeCue = null;
     updatePill("Biliload: 查询");
@@ -105,6 +107,9 @@
     if (location.href !== currentUrl) {
       loadSubtitleForPage();
     }
+    if (cues.length === 0 && Date.now() - lastLookupAt > 5000) {
+      loadSubtitleForPage();
+    }
     updateCue();
   }
 
@@ -112,4 +117,3 @@
   loadSubtitleForPage();
   window.setInterval(tick, 250);
 })();
-
