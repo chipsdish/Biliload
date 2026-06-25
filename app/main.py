@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -22,6 +23,8 @@ DATA_DIR = ROOT / "data"
 JOBS_DIR = DATA_DIR / "jobs"
 INDEX_PATH = DATA_DIR / "index.json"
 STATIC_DIR = ROOT / "static"
+CLEANUP_RETENTION_SECONDS = int(os.getenv("BILILOAD_TEMP_RETENTION_SECONDS", "86400"))
+CLEANUP_INTERVAL_SECONDS = int(os.getenv("BILILOAD_CLEANUP_INTERVAL_SECONDS", "3600"))
 
 app = FastAPI(title="Biliload", version="0.1.0")
 app.add_middleware(
@@ -44,6 +47,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 executor = ThreadPoolExecutor(max_workers=int(os.getenv("BILILOAD_WORKERS", "1")))
 lock = threading.RLock()
 jobs: dict[str, dict] = {}
+cleanup_started = False
 
 
 class CreateJobRequest(BaseModel):
@@ -83,6 +87,16 @@ def index() -> FileResponse:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.on_event("startup")
+def start_cleanup_worker() -> None:
+    global cleanup_started
+    if cleanup_started:
+        return
+    cleanup_started = True
+    thread = threading.Thread(target=cleanup_worker, daemon=True)
+    thread.start()
 
 
 @app.post("/api/jobs", response_model=JobResponse)
@@ -257,6 +271,96 @@ def load_jobs_from_disk() -> None:
             already_loaded = job_id in jobs
         if not already_loaded:
             load_job_from_disk(job_id)
+
+
+def cleanup_worker() -> None:
+    cleanup_completed_subtitle_temp_files()
+    while True:
+        time.sleep(CLEANUP_INTERVAL_SECONDS)
+        cleanup_completed_subtitle_temp_files()
+
+
+def cleanup_completed_subtitle_temp_files() -> None:
+    load_jobs_from_disk()
+    with lock:
+        job_ids = list(jobs)
+
+    for job_id in job_ids:
+        try:
+            cleanup_job_temp_files(job_id)
+        except Exception:
+            # Cleanup must never interrupt downloads or subtitle serving.
+            continue
+
+
+def cleanup_job_temp_files(job_id: str) -> None:
+    job = get_job(job_id)
+    if job.get("status") != "completed":
+        return
+    if job.get("task_type", "subtitle") != "subtitle":
+        return
+    if job.get("temp_files_cleaned_at"):
+        return
+    if not is_retention_elapsed(job):
+        return
+
+    job_dir = JOBS_DIR / job_id
+    temp_files = collect_subtitle_temp_files(job_dir)
+    deleted: list[str] = []
+    for path in temp_files:
+        if path.exists() and path.is_file():
+            path.unlink()
+            deleted.append(path.name)
+
+    if deleted:
+        mark_temp_files_cleaned(job_id, deleted)
+
+
+def collect_subtitle_temp_files(job_dir: Path) -> set[Path]:
+    temp_files = {job_dir / "audio_16k.wav"}
+    metadata_path = job_dir / "metadata.json"
+    if metadata_path.exists():
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        media_file = metadata.get("media_file")
+        if isinstance(media_file, str):
+            temp_files.add(job_dir / media_file)
+    return temp_files
+
+
+def is_retention_elapsed(job: dict) -> bool:
+    completed_at = parse_utc_datetime(job.get("updated_at"))
+    if not completed_at:
+        job_path = JOBS_DIR / job["id"] / "job.json"
+        if not job_path.exists():
+            return False
+        completed_at = datetime.fromtimestamp(job_path.stat().st_mtime, timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - completed_at).total_seconds()
+    return age_seconds >= CLEANUP_RETENTION_SECONDS
+
+
+def parse_utc_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def mark_temp_files_cleaned(job_id: str, deleted: list[str]) -> None:
+    with lock:
+        job = jobs[job_id]
+        job["temp_files_cleaned_at"] = utc_now()
+        job["temp_files_deleted"] = deleted
+
+    job_dir = JOBS_DIR / job_id
+    (job_dir / "job.json").write_text(
+        json.dumps(job, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def read_index() -> dict:
