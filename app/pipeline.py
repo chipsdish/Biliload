@@ -73,21 +73,20 @@ def run_pipeline(
 ) -> dict:
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    download_video = task_type == "video"
     progress("downloading", 0.05, "读取视频信息并下载媒体")
     media_path, info = download_media(
         url=url,
         job_dir=job_dir,
         cookies_browser=cookies_browser,
-        download_video=download_video,
+        media_kind=task_type,
         progress=progress,
     )
 
     title = clean_title(info.get("title") or "untitled")
     bvid = extract_bvid(info.get("id")) or extract_bvid(url)
 
-    if task_type == "video":
-        files = {"video": media_path.name}
+    if task_type in {"video", "audio"}:
+        files = {task_type: media_path.name}
         metadata = {
             "job_id": job_id,
             "url": url,
@@ -105,7 +104,11 @@ def run_pipeline(
             json.dumps(metadata, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        progress("completed", 1.0, "视频下载完成")
+        progress(
+            "completed",
+            1.0,
+            "视频下载完成" if task_type == "video" else "音频下载完成",
+        )
         return metadata
 
     progress("extracting_audio", 0.30, "抽取 16k 单声道音频")
@@ -157,7 +160,7 @@ def download_media(
     url: str,
     job_dir: Path,
     cookies_browser: str | None,
-    download_video: bool,
+    media_kind: str,
     progress: ProgressCallback,
 ) -> tuple[Path, dict]:
     try:
@@ -184,7 +187,7 @@ def download_media(
     if cookies_browser:
         options["cookiesfrombrowser"] = (cookies_browser,)
 
-    if download_video:
+    if media_kind == "video":
         options.update(
             {
                 "format": "bestvideo*+bestaudio/best",
@@ -193,6 +196,14 @@ def download_media(
         )
     else:
         options.update({"format": "ba/bestaudio/best"})
+        if media_kind == "audio":
+            options["postprocessors"] = [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "0",
+                }
+            ]
 
     with YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=True)

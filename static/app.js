@@ -98,6 +98,12 @@ function renderJobs(jobs) {
         download.textContent = "下载视频";
         download.target = "_blank";
         links.append(download);
+      } else if (job.task_type === "audio" && job.files?.audio) {
+        const download = document.createElement("a");
+        download.href = `/api/jobs/${job.id}/files/audio`;
+        download.textContent = "下载音频";
+        download.target = "_blank";
+        links.append(download);
       } else {
         const open = document.createElement("a");
         open.href = bilibiliImportUrl(job);
@@ -122,7 +128,12 @@ function renderJobs(jobs) {
 }
 
 function taskTypeText(job) {
-  return job.task_type === "video" ? "下载视频" : "双语字幕";
+  const labels = {
+    video: "下载视频",
+    audio: "下载音频",
+    subtitle: "双语字幕",
+  };
+  return labels[job.task_type] || labels.subtitle;
 }
 
 function bilibiliImportUrl(job) {

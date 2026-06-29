@@ -52,7 +52,7 @@ cleanup_started = False
 
 class CreateJobRequest(BaseModel):
     url: str = Field(min_length=1)
-    task_type: Literal["subtitle", "video"] = "subtitle"
+    task_type: Literal["subtitle", "video", "audio"] = "subtitle"
     source_language: str = Field(default="auto")
     whisper_model: str = Field(default="small")
     translator: Literal["google", "none"] = "google"
@@ -378,7 +378,7 @@ def write_index(job_id: str) -> None:
         "bvid": job.get("bvid"),
         "updated_at": job.get("updated_at"),
     }
-    if job.get("bvid"):
+    if job.get("bvid") and job.get("task_type", "subtitle") == "subtitle":
         index_data.setdefault("by_bvid", {})[job["bvid"]] = job_id
     INDEX_PATH.write_text(
         json.dumps(index_data, ensure_ascii=False, indent=2),
